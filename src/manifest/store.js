@@ -199,11 +199,17 @@ export async function migrateAll(root) {
  * human judgement untouched. Safe to run from a git hook or CI — which is how
  * a brain stays current without anyone remembering to update it.
  */
-export async function refreshEntries(root, scan) {
+export async function refreshEntries(root, scan, only = null) {
   const entries = await readEntries(root);
   const results = { refreshed: [], missing: [] };
+  // `brain doctor --fix` repairs named entries. Rewriting the whole catalogue
+  // to fix one of them would touch twenty-five files that had nothing wrong,
+  // and a repair that reaches further than the problem is not a repair.
+  const wanted = only ? new Set(only) : null;
 
   for (const entry of entries) {
+    if (wanted && !wanted.has(entry.id)) continue;
+
     const path = entry.source?.path;
     if (!path) continue;
 

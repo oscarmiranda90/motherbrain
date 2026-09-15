@@ -35,6 +35,9 @@ import { collectCardBrief, renderCardBatch } from "../src/ingest/cards.js";
 import { placeImage, publishedExtension, INSTALL_HINT } from "../src/media/optimise.js";
 import { buildBundle } from "../src/manifest/bundle.js";
 import { redactBundle, redactProject } from "../src/manifest/publish.js";
+import { query, facetValues, FILTERS, TOGGLES } from "../src/manifest/query.js";
+import { diagnose, summarise, refreshable } from "../src/manifest/doctor.js";
+import { findSites } from "../src/scan/deploy.js";
 import { renderDashboard } from "../src/dashboard/render.js";
 import { buildWikiPayload, renderWiki } from "../src/dashboard/wiki.js";
 import { buildPickPayload, renderPickPage } from "../src/dashboard/pick.js";
@@ -634,6 +637,217 @@ async function cmdMigrate() {
   return 0;
 }
 
+async function cmdQuery(args) {
+  const root = BRAIN_ROOT;
+  const bundle = await buildBundle(root);
+
+  // Anything not a known flag is a free-text term, so `brain query video`
+  // works without remembering a flag name.
+  const filters = {};
+  const toggles = [];
+  for (const [name, value] of Object.entries(args.flags)) {
+    if (value === true) toggles.push(name);
+    else filters[name] = String(value);
+  }
+  const text = args._.join(" ").trim() || undefined;
+
+  const sort = filters.sort;
+  const limit = filters.limit ? Number.parseInt(filters.limit, 10) : undefined;
+  delete filters.sort;
+  delete filters.limit;
+  const wantsJson = toggles.includes("json");
+  const jsonIndex = toggles.indexOf("json");
+  if (jsonIndex !== -1) toggles.splice(jsonIndex, 1);
+
+  const { results, applied, unknown } = query(bundle.projects, {
+    text,
+    filters,
+    toggles,
+    sort,
+    limit,
+  });
+
+  if (unknown.length) {
+    log(paint(`Unknown filter: ${unknown.join(", ")}`, color.red));
+    log("");
+    log(`Filters:  ${paint(Object.keys(FILTERS).map((f) => `--${f}`).join("  "), color.dim)}`);
+    log(`Flags:    ${paint(Object.keys(TOGGLES).map((t) => `--${t}`).join("  "), color.dim)}`);
+    return 1;
+  }
+
+  if (wantsJson) {
+    log(JSON.stringify(results, null, 2));
+    return 0;
+  }
+
+  heading(
+    applied.length
+      ? `${results.length} of ${bundle.projects.length} — ${applied.join(" · ")}`
+      : `${results.length} projects`,
+  );
+
+  if (results.length === 0) {
+    log(paint("Nothing matches.", color.yellow));
+    // A bare "no results" is unhelpful; show what the catalogue does contain
+    // for whichever facet was filtered on.
+    for (const name of Object.keys(filters)) {
+      const values = facetValues(bundle.projects, name);
+      if (values.length === 0) continue;
+      log("");
+      log(`${paint(name, color.bold)} values in this brain:`);
+      log(
+        paint(
+          "  " + values.slice(0, 14).map((v) => `${v.value} (${v.count})`).join("  ·  "),
+          color.dim,
+        ),
+      );
+    }
+    return 0;
+  }
+
+  for (const project of results) {
+    const marks = [
+      project.dossier?.complete ? paint("●", color.green) : paint("○", color.yellow),
+      project.links?.repo ? paint("↗", hue.steel) : " ",
+    ].join("");
+    const built = (project.frameworks ?? []).slice(0, 3).join("/");
+    log(
+      `${marks} ${(project.name ?? "").padEnd(26)} ${paint((project.status ?? "—").padEnd(10), color.dim)} ${paint(built, color.dim)}`,
+    );
+    if (project.tagline) log(paint(`     ${fit(project.tagline, 76)}`, color.gray));
+  }
+
+  log("");
+  log(
+    paint(
+      `● full dossier   ○ card only   ↗ public repo      ${results.length} shown`,
+      color.dim,
+    ),
+  );
+  return 0;
+}
+
+async function cmdDoctor(args) {
+  const root = BRAIN_ROOT;
+  const entries = await readEntries(root);
+
+  if (entries.length === 0) {
+    log(paint("Brain is empty — nothing to check.", color.yellow));
+    return 0;
+  }
+
+  heading(`Checking ${entries.length} entries`);
+
+  const findings = await diagnose(entries);
+  const counts = summarise(findings);
+
+  if (findings.length === 0) {
+    log(paint("Everything checks out.", color.green));
+    return 0;
+  }
+
+  const icon = { error: paint("✕", color.red), warning: paint("!", color.yellow), note: paint("·", color.gray) };
+  let lastId = null;
+  for (const finding of findings) {
+    if (finding.id !== lastId) {
+      log("");
+      log(paint(finding.id, color.bold));
+      lastId = finding.id;
+    }
+    log(`  ${icon[finding.severity]} ${finding.problem}`);
+    log(paint(`    ${finding.fix}`, color.dim));
+  }
+
+  log("");
+  log(
+    [
+      counts.error ? paint(`${counts.error} to fix`, color.red) : null,
+      counts.warning ? paint(`${counts.warning} drifting`, color.yellow) : null,
+      counts.note ? paint(`${counts.note} worth a look`, color.gray) : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  );
+
+  const canRefresh = refreshable(findings);
+  if (canRefresh.length && !args.flags.fix) {
+    log("");
+    log(
+      `${canRefresh.length} ${canRefresh.length === 1 ? "entry" : "entries"} can be repaired mechanically: ${paint("brain doctor --fix", color.cyan)}`,
+    );
+  }
+
+  if (args.flags.fix && canRefresh.length) {
+    log("");
+    log(paint("Refreshing machine facts — prose is untouched.", color.dim));
+    // Only the entries that actually drifted. A repair that rewrites the whole
+    // catalogue to fix one entry is not a repair.
+    const results = await refreshEntries(root, scan, canRefresh);
+    await buildBundle(root);
+    for (const entry of results.refreshed) log(`${paint("~", color.cyan)} ${entry.id}`);
+    log("");
+    log(paint("Re-run `brain doctor` to see what remains.", color.dim));
+  }
+
+  // Errors mean the catalogue points at something that is not there, which is
+  // worth a non-zero exit so a CI step or a hook can notice.
+  return counts.error > 0 ? 1 : 0;
+}
+
+async function cmdSites(args) {
+  const root = BRAIN_ROOT;
+  const entries = await readEntries(root);
+  const targets = args._.length
+    ? entries.filter((e) => args._.includes(e.id))
+    : entries.filter((e) => !e.links?.site);
+
+  if (targets.length === 0) {
+    log(paint("Every entry already has a site link.", color.green));
+    return 0;
+  }
+
+  heading(`Looking for published URLs in ${targets.length} projects`);
+  log(paint("Candidates only — nothing is written until you confirm.", color.dim));
+
+  let found = 0;
+  for (const entry of targets) {
+    const path = entry.source?.path;
+    if (!path || !(await pathExists(path))) continue;
+
+    const sites = await findSites(path);
+    if (sites.length === 0) continue;
+
+    found += 1;
+    log("");
+    log(paint(entry.id, color.bold));
+    for (const site of sites) {
+      const tint = { high: color.green, medium: color.yellow, low: color.gray }[site.confidence];
+      log(`  ${paint(site.url, tint)}`);
+      log(paint(`    ${site.source} · ${site.confidence} confidence`, color.dim));
+    }
+  }
+
+  if (found === 0) {
+    log("");
+    log(paint("No candidate URLs found in any configuration.", color.dim));
+    return 0;
+  }
+
+  log("");
+  log("To accept one, set it in the entry:");
+  log(paint("  links:", color.dim));
+  log(paint("    site: https://…", color.dim));
+  log("");
+  log(
+    paint(
+      "A wrong URL on a public page is worse than a missing one, so these are",
+      color.dim,
+    ),
+  );
+  log(paint("proposals — check the address actually serves the project.", color.dim));
+  return 0;
+}
+
 /**
  * Write the update instruction into the agent files a developer already keeps.
  *
@@ -730,6 +944,55 @@ async function cmdHook(args) {
     log("Your agent will now refresh this project's entry when it finishes");
     log("meaningful work. The block is marked, so running this again is safe.");
   }
+
+  // --- the git hook, which catches what an agent forgets ----------------
+  if (args.flags.git) {
+    const gitDir = join(target, ".git");
+    if (!(await pathExists(gitDir))) {
+      log("");
+      log(paint("Not a git repository — skipping the commit hook.", color.yellow));
+      return changed ? 0 : 1;
+    }
+
+    const hookPath = join(gitDir, "hooks", "post-commit");
+    const line = `brain add "${target}" >/dev/null 2>&1 || true`;
+    const banner = "# motherbrain: keep this project's catalogue entry current";
+    const existing = (await pathExists(hookPath)) ? await readFile(hookPath, "utf8") : null;
+
+    if (existing?.includes("motherbrain")) {
+      log("");
+      log(`${paint("=", color.gray)} post-commit  ${paint("already installed", color.dim)}`);
+      return 0;
+    }
+
+    if (args.flags["dry-run"]) {
+      log("");
+      log(`${paint("+", color.cyan)} .git/hooks/post-commit  ${paint("would be appended", color.dim)}`);
+      log(paint(`    ${line}`, color.dim));
+      return 0;
+    }
+
+    // Append rather than overwrite: a repository may already have a hook, and
+    // clobbering someone's tooling to install ours would be indefensible.
+    const body = existing
+      ? `${existing.trimEnd()}\n\n${banner}\n${line}\n`
+      : `#!/bin/sh\n\n${banner}\n${line}\n`;
+
+    await writeFile(hookPath, body, "utf8");
+    const { chmod } = await import("node:fs/promises");
+    await chmod(hookPath, 0o755);
+
+    log("");
+    log(`${paint("+", color.green)} .git/hooks/post-commit`);
+    log(
+      paint(
+        "    Structure refreshes on every commit. It never touches your prose,",
+        color.dim,
+      ),
+    );
+    log(paint("    and a failure is swallowed so it cannot block a commit.", color.dim));
+  }
+
   return 0;
 }
 
@@ -1108,9 +1371,17 @@ ${paint("Keeping it current", color.bold)}
   brain build                regenerate brain.json + api/ + dashboard
   brain dashboard --open     build and open the read-only dashboard
 
+${paint("Asking the brain things", color.bold)}
+  brain query [text]         filter the catalogue (alias: q)
+                             --framework --capability --pattern --kind --status
+                             --has-dossier --no-card --public --json
+  brain doctor [--fix]       find drift: stale entries, dead paths, gaps
+  brain sites [id...]        look for published URLs in deploy configs
+
 ${paint("Keeping it current automatically", color.bold)}
   brain hook [path]          add the update instruction to CLAUDE.md / AGENTS.md
                              so your agent refreshes the entry as it works
+  brain hook --git [path]    also install a post-commit hook that refreshes it
 
 ${paint("Serving it to agents", color.bold)}
   brain wiki --out public/   build the encyclopedia (alias of publish)
@@ -1150,6 +1421,10 @@ const COMMANDS = {
   send: cmdAdd, // "send to brain"
   ingest: cmdIngest,
   status: cmdStatus,
+  query: cmdQuery,
+  q: cmdQuery,
+  doctor: cmdDoctor,
+  sites: cmdSites,
   hook: cmdHook,
   refresh: cmdRefresh,
   migrate: cmdMigrate,

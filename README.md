@@ -351,6 +351,22 @@ It writes **only into files you already keep**, and never creates one — if a
 project has no agent file, it says so and exits. Running it twice is a no-op,
 and removing the block is a search for one word.
 
+### Or don't rely on an agent at all
+
+```bash
+brain hook --git           # install a post-commit hook instead
+```
+
+The agent file asks something to remember. A git hook does not: every commit
+refreshes the entry's structure, git dates and detected stack, with no prose
+touched and nothing to remember.
+
+It **appends** to `.git/hooks/post-commit` rather than overwriting it, so a hook
+you already have keeps working. The command it adds ends in `|| true` and
+discards its own output — a catalogue must never be the reason a commit fails.
+What it cannot do is write the part that matters: refreshing structure is
+mechanical, describing what a project *became* is not. That stays a decision.
+
 ---
 
 ## For your agent
@@ -373,8 +389,63 @@ made, and reading a file is not endorsing a vendor.
 ```bash
 brain scan --json     # every folder found, with structure
 brain list --json     # the manifest
+brain query --framework Next.js --public --json
 brain build           # compile brain.json + api/ + dashboard
 ```
+
+---
+
+## Asking the catalogue things
+
+A catalogue you have to read before you can search is not a catalogue. `brain
+query` goes at the indexes directly, so the question comes out in the shape you
+asked it:
+
+```bash
+brain query video                          # free text: name, card, dossier, docs
+brain query --framework Next.js --public   # filters AND together
+brain query --capability "video export" --no-dossier
+brain query --has-repo --sort started      # oldest first
+brain query --ecosystem python --json      # for a script or an agent
+```
+
+Values are forgiving about spelling — `nextjs`, `Next.js` and `next-js` all find
+the same projects. Filters cover `--framework`, `--ecosystem`, `--capability`,
+`--pattern`, `--tag`, `--kind`, `--status`, `--visibility`, `--domain`,
+`--architecture` and `--relates`; flags cover `--has-dossier`, `--no-card`,
+`--has-repo`, `--has-site`, `--has-images`, `--public` and their negations. When
+a query finds nothing, it prints the values that *do* exist for that facet.
+
+### Drift, and how to see it
+
+A manifest decays quietly. An entry written in March still says March while the
+repository moved on in September; a project is moved to another disk and its
+path stops resolving; a document is renamed and the entry keeps pointing at the
+old name. None of that announces itself.
+
+```bash
+brain doctor          # report, grouped by severity, with a fix named for each
+brain doctor --fix    # apply only the repairs that are purely mechanical
+```
+
+`--fix` runs `brain refresh` on the entries that drifted behind their git
+history. It will not write prose, invent a summary, or confirm an image — those
+are yours. Everything else is reported and left alone.
+
+### Finding where a project is published
+
+Deploy configuration usually carries the URL already: a `homepage` field, a
+Wrangler route, a Vercel alias, a Firebase site id, a `CNAME`.
+
+```bash
+brain sites           # candidates, with their source and confidence
+```
+
+Every result is a **candidate**, never a fact — a Wrangler route can be a
+staging pattern, and a Firebase project id implies a `.web.app` address that may
+never have been served. So each finding says where it came from and how much to
+trust it, and nothing is written until you add `links.site` yourself. A wrong
+URL on a public page is worse than a missing one.
 
 ---
 
@@ -389,8 +460,12 @@ brain add [path…]          # send projects to the brain (alias: send)
 brain ingest --cards       # one light briefing for every project  ← start here
 brain ingest <id>          # a deep briefing for one project's dossier
 brain list [--json]        # what is catalogued, what needs a write-up
+brain query [term]         # ask the catalogue a question (alias: q)
+brain doctor [--fix]       # find drift between entries and repositories
+brain sites                # look for the URLs your projects are published at
 brain build                # regenerate brain.json + api/ + dashboard
 brain hook [path]          # let your agent keep an entry current as it works
+brain hook --git           # or let a post-commit hook do it for you
 brain refresh              # re-read git and structure; never your prose
 brain migrate              # add fields and sections from a newer schema
 brain wiki --out public/   # build the encyclopedia (alias of publish)

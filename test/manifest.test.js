@@ -1165,6 +1165,93 @@ test("refreshing never undoes an image the author confirmed", async () => {
   assert.match(newBlock.slice(0, 120), /confirmed: false/, "new candidates start unconfirmed");
 });
 
+test("a scoped refresh touches only the entries it was given", async () => {
+  // `brain doctor --fix` repairs the entries that drifted. Rewriting the whole
+  // catalogue to fix one of them would move the mtime of every other file and
+  // rewrite prose-carrying documents that had nothing wrong.
+  const { mkdtemp, mkdir, writeFile: wf, readFile: rf, stat } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join: j } = await import("node:path");
+  const { refreshEntries } = await import("../src/manifest/store.js");
+  const { scan } = await import("../src/scan/index.js");
+
+  const root = await mkdtemp(j(tmpdir(), "mb-scope-"));
+  await mkdir(j(root, "projects"), { recursive: true });
+
+  const dirs = {};
+  for (const id of ["drifted", "untouched"]) {
+    const dir = await mkdtemp(j(tmpdir(), `mb-${id}-`));
+    await wf(j(dir, "package.json"), JSON.stringify({ name: id }));
+    dirs[id] = dir;
+    await wf(
+      j(root, "projects", `${id}.md`),
+      [
+        "---",
+        `id: ${id}`,
+        `name: ${id}`,
+        // A stale framework list: proof that a refresh reached this entry.
+        "frameworks:",
+        "  - Stale Framework",
+        "source:",
+        `  path: ${dir}`,
+        "---",
+        "",
+        "## Card",
+        "",
+        `${id} does a thing.`,
+        "",
+      ].join("\n"),
+    );
+  }
+
+  const before = await rf(j(root, "projects", "untouched.md"), "utf8");
+  const beforeStat = await stat(j(root, "projects", "untouched.md"));
+
+  const results = await refreshEntries(root, scan, ["drifted"]);
+
+  assert.deepEqual(
+    results.refreshed.map((r) => r.id),
+    ["drifted"],
+    "only the named entry is reported as refreshed",
+  );
+
+  const after = await rf(j(root, "projects", "untouched.md"), "utf8");
+  assert.equal(after, before, "an entry that was not named is left byte for byte alone");
+  const afterStat = await stat(j(root, "projects", "untouched.md"));
+  assert.equal(
+    afterStat.mtimeMs,
+    beforeStat.mtimeMs,
+    "and is not even rewritten with identical content",
+  );
+
+  // The named one really was refreshed, so the test cannot pass by doing nothing.
+  const repaired = await rf(j(root, "projects", "drifted.md"), "utf8");
+  assert.doesNotMatch(repaired, /Stale Framework/, "the named entry's machine facts are re-read");
+});
+
+test("a refresh with no scope still covers the whole catalogue", async () => {
+  // The default must stay unchanged: `brain refresh` means everything.
+  const { mkdtemp, mkdir, writeFile: wf } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join: j } = await import("node:path");
+  const { refreshEntries } = await import("../src/manifest/store.js");
+  const { scan } = await import("../src/scan/index.js");
+
+  const root = await mkdtemp(j(tmpdir(), "mb-all-"));
+  await mkdir(j(root, "projects"), { recursive: true });
+  for (const id of ["one", "two"]) {
+    const dir = await mkdtemp(j(tmpdir(), `mb-${id}-`));
+    await wf(j(dir, "package.json"), JSON.stringify({ name: id }));
+    await wf(
+      j(root, "projects", `${id}.md`),
+      ["---", `id: ${id}`, `name: ${id}`, "source:", `  path: ${dir}`, "---", "", "## Card", "", "x", ""].join("\n"),
+    );
+  }
+
+  const results = await refreshEntries(root, scan);
+  assert.deepEqual(results.refreshed.map((r) => r.id).sort(), ["one", "two"]);
+});
+
 test("a proposed image is never published until the author confirms it", async () => {
   const { proposeImages, confirmedImages } = await import("../src/scan/images.js");
 

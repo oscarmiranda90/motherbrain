@@ -1165,6 +1165,60 @@ test("refreshing never undoes an image the author confirmed", async () => {
   assert.match(newBlock.slice(0, 120), /confirmed: false/, "new candidates start unconfirmed");
 });
 
+test("a written card counts as a card, even with the dossier still empty", async () => {
+  // The bug this pins: `narrativeGaps().complete` answers "is the whole
+  // write-up done", and using it to ask "is there a card" made twenty-two
+  // finished cards report as missing — so `ingest --cards` collected them all
+  // again and told the author to write prose that already existed.
+  const { hasCard, narrativeGaps } = await import("../src/manifest/store.js");
+
+  const carded = {
+    id: "carded",
+    _body: [
+      "## Card",
+      "",
+      "A Flutter game in which players cook real meals and a model generates a creature.",
+      "",
+      "## What it is",
+      "",
+      "<!-- TODO: write this -->",
+      "",
+      "## How it works",
+      "",
+      "<!-- TODO: write this -->",
+      "",
+    ].join("\n"),
+  };
+
+  assert.equal(hasCard(carded), true, "a card with prose is a card");
+  assert.equal(
+    narrativeGaps(carded).complete,
+    false,
+    "and the dossier is still unwritten — the two questions are different",
+  );
+});
+
+test("a placeholder comment is not a card", async () => {
+  const { hasCard } = await import("../src/manifest/store.js");
+
+  assert.equal(
+    hasCard({ _body: "## Card\n\n<!-- TODO (~120 words): write it -->\n\n## What it is\n" }),
+    false,
+    "the placeholder the schema ships must not count as written",
+  );
+  assert.equal(hasCard({ _body: "## Card\n\n   \n\n## What it is\n" }), false, "whitespace is not prose");
+  assert.equal(hasCard({ _body: "## What it is\n\ntext\n" }), false, "no Card heading at all");
+  assert.equal(hasCard({}), false, "an entry with no body does not throw");
+});
+
+test("a fully written entry is both carded and complete", async () => {
+  const { hasCard, narrativeGaps } = await import("../src/manifest/store.js");
+
+  const entry = { _body: "## Card\n\nReal prose.\n\n## What it is\n\nAlso real prose.\n" };
+  assert.equal(hasCard(entry), true);
+  assert.equal(narrativeGaps(entry).complete, true);
+});
+
 test("a scoped refresh touches only the entries it was given", async () => {
   // `brain doctor --fix` repairs the entries that drifted. Rewriting the whole
   // catalogue to fix one of them would move the mtime of every other file and

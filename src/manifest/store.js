@@ -365,11 +365,34 @@ export async function readEntries(root) {
   return entries.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 }
 
-/** Count how much prose is still a TODO, per entry. */
+/**
+ * Count how much prose is still a TODO, per entry.
+ *
+ * `complete` means every section is written, dossier included — so an entry
+ * with a finished card but empty dossier headings is deliberately *not*
+ * complete. It answers "is there a full write-up", never "is there a card";
+ * for that, use `hasCard`. Conflating the two told authors their finished
+ * cards did not exist.
+ */
 export function narrativeGaps(entry) {
   const body = entry._body ?? "";
   const todos = [...body.matchAll(/<!--\s*TODO/g)].length;
   return { todos, complete: todos === 0 };
+}
+
+/**
+ * Whether the entry's `## Card` section carries real prose.
+ *
+ * The card is the one section that makes a project visible to the catalogue
+ * and its cross-project indexes, and it is written long before any dossier.
+ * A placeholder comment is not a card, so comments are stripped before the
+ * text is weighed.
+ */
+export function hasCard(entry) {
+  const body = entry._body ?? "";
+  const section = body.split(/^##\s+Card\s*$/m)[1] ?? "";
+  const text = section.split(/^##\s+/m)[0] ?? "";
+  return text.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
 /** Add scanned projects to the manifest, skipping ones already present. */

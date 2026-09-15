@@ -24,6 +24,7 @@ import {
   addProjects,
   brainPaths,
   ensureBrain,
+  hasCard,
   narrativeGaps,
   pathExists,
   readEntries,
@@ -283,19 +284,22 @@ async function cmdScan(args) {
 
   await buildBundle(root);
   const entries = await readEntries(root);
-  const gaps = entries.filter((e) => !narrativeGaps(e).complete);
+  const cardless = entries.filter((e) => !hasCard(e));
 
   log("");
   log(paint(`brain.json rebuilt — ${entries.length} projects`, color.dim));
 
-  if (gaps.length) {
+  // Only a missing *card* is worth interrupting for: it is what makes a
+  // project visible to the catalogue at all. A missing dossier is the normal
+  // resting state and must not read as unfinished work.
+  if (cardless.length) {
     log("");
-    log(`${paint(String(gaps.length), color.yellow)} entries have no prose yet.`);
+    log(`${paint(String(cardless.length), color.yellow)} entries have no card yet.`);
     log(
       `A framework list is not what a CV or a post needs — the ${paint('"why I built this"', color.bold)} is.`,
     );
     log("");
-    log(`Fill them with an agent:  ${paint("/mother-brain write", color.cyan)}`);
+    log(`Fill them in one pass:    ${paint("brain ingest --cards", color.cyan)}`);
     log(
       `Or by hand:               ${paint(`${relativeTo(root, brainPaths(root).projects)}/*.md`, color.cyan)}`,
     );
@@ -388,14 +392,14 @@ async function cmdAdd(args) {
 
   const entries = await readEntries(root);
   const written = new Set([...results.created, ...results.refreshed].map((i) => i.id));
-  const gaps = entries.filter((e) => written.has(e.id) && !narrativeGaps(e).complete);
+  const gaps = entries.filter((e) => written.has(e.id) && !hasCard(e));
 
   if (gaps.length) {
     log("");
     log(
-      `${paint(String(gaps.length), color.yellow)} ${gaps.length === 1 ? "entry needs" : "entries need"} prose.`,
+      `${paint(String(gaps.length), color.yellow)} ${gaps.length === 1 ? "entry needs" : "entries need"} a card.`,
     );
-    log(paint("Run `/mother-brain write` in an agent to fill them from the code.", color.dim));
+    log(paint("Write them in one pass: `brain ingest --cards`.", color.dim));
   }
 
   return 0;
@@ -500,16 +504,15 @@ async function cmdBuild() {
  * the few projects someone later wants an article about.
  */
 async function cmdCards(args, entries, root) {
-  const targets = args.flags.all
-    ? entries.filter((e) => !e.card_written)
-    : entries.filter((e) => {
-        const gaps = narrativeGaps(e);
-        // An entry with a full dossier has a card already.
-        return !gaps.complete && e.narrative_status !== "reviewed";
-      });
+  // A card pass needs the entries whose *card* is unwritten. Asking
+  // `narrativeGaps` instead asked whether the whole dossier was written, so
+  // every entry with a finished card was collected again, and the briefing
+  // told the author to write twenty-two cards that already existed.
+  const targets = entries.filter((e) => !hasCard(e));
 
   if (targets.length === 0) {
     log(paint("Every entry already has a card.", color.green));
+    log(paint("Dossiers are the next depth: `brain ingest <id>`.", color.dim));
     return 0;
   }
 
@@ -561,6 +564,10 @@ async function cmdIngest(args) {
 
   if (args.flags.cards) return cmdCards(args, entries, root);
 
+  // Without `--cards` this is the deep pass: one dossier per project, read
+  // from the repository. Selecting on `narrativeGaps` is right here — but an
+  // entry with a finished card is a normal target, so the wording has to say
+  // *dossier*. Calling them "unwritten" invited a very expensive `--all`.
   let targets;
   if (args.flags.all) {
     targets = entries.filter((e) => !narrativeGaps(e).complete);
@@ -570,16 +577,17 @@ async function cmdIngest(args) {
     const missing = [...wanted].filter((id) => !entries.some((e) => e.id === id));
     for (const id of missing) log(`${paint("!", color.yellow)} no entry with id ${id}`);
   } else {
-    log(paint("Which project? Pass an id, or --all for every unwritten entry.", color.yellow));
+    log(paint("Which project? Pass an id, or --all for every entry without a dossier.", color.yellow));
+    log(paint("A dossier opens the repository. For a card per project, use --cards.", color.dim));
     log("");
     for (const entry of entries.filter((e) => !narrativeGaps(e).complete).slice(0, 12)) {
-      log(`  ${entry.id}`);
+      log(`  ${entry.id}${hasCard(entry) ? paint("  (has a card)", color.dim) : ""}`);
     }
     return 1;
   }
 
   if (targets.length === 0) {
-    log(paint("Nothing to ingest — every entry already has a write-up.", color.green));
+    log(paint("Nothing to ingest — every entry already has a full dossier.", color.green));
     return 0;
   }
 
@@ -1028,12 +1036,9 @@ async function cmdStatus() {
     return 0;
   }
 
-  const carded = entries.filter((e) => {
-    const body = e._body ?? "";
-    const card = body.split(/^##\s+Card\s*$/m)[1] ?? "";
-    const text = card.split(/^##\s+/m)[0] ?? "";
-    return text.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
-  });
+  // This check was inlined here and nowhere else, which is why `status` was
+  // the only command reporting cards correctly. It is shared now.
+  const carded = entries.filter(hasCard);
   const documented = entries.filter((e) => narrativeGaps(e).complete);
   const publishable = entries.filter((e) => e.visibility === "public");
   const missingPath = [];
@@ -1312,10 +1317,22 @@ async function cmdList(args) {
     );
   }
 
-  const gaps = entries.filter((e) => !narrativeGaps(e).complete).length;
-  if (gaps) {
+  // Two different gaps, and calling both "no prose" made a finished card pass
+  // look like no work at all.
+  const cardless = entries.filter((e) => !hasCard(e)).length;
+  const dossierless = entries.filter((e) => !narrativeGaps(e).complete).length;
+  if (cardless) {
     log("");
-    log(paint(`${gaps} have no prose yet — ○ marks them.`, color.dim));
+    log(paint(`${cardless} have no card yet — start with \`brain ingest --cards\`.`, color.dim));
+  }
+  if (dossierless) {
+    log("");
+    log(
+      paint(
+        `${dossierless} of ${entries.length} have a card but no full dossier — ○ marks them. That is the normal state; dossiers are per project, on demand.`,
+        color.dim,
+      ),
+    );
   }
   return 0;
 }

@@ -1165,6 +1165,38 @@ test("refreshing never undoes an image the author confirmed", async () => {
   assert.match(newBlock.slice(0, 120), /confirmed: false/, "new candidates start unconfirmed");
 });
 
+test("the shipped example entry is never published", async () => {
+  // It reached a real wiki build: an article about `/path/to/your/project`,
+  // sitting among twenty real projects. The example documents the schema; it
+  // describes nothing, so it has no place on anyone's public page.
+  const { isPublishable } = await import("../src/manifest/publish.js");
+
+  const example = {
+    id: "example-project",
+    visibility: "public",
+    source: { path: "/path/to/your/project" },
+  };
+
+  assert.equal(isPublishable(example), false, "even marked public");
+  assert.equal(
+    isPublishable(example, { includePrivate: true }),
+    false,
+    "--include-private publishes private *work*, never our placeholder",
+  );
+
+  // Recognised by the placeholder path too, so renaming the file is covered.
+  assert.equal(
+    isPublishable({ id: "my-first-project", visibility: "public", source: { path: "/path/to/your/thing" } }),
+    false,
+  );
+
+  // And a real project is unaffected.
+  assert.equal(
+    isPublishable({ id: "real", visibility: "public", source: { path: "/Users/someone/code/real" } }),
+    true,
+  );
+});
+
 test("a written card counts as a card, even with the dossier still empty", async () => {
   // The bug this pins: `narrativeGaps().complete` answers "is the whole
   // write-up done", and using it to ask "is there a card" made twenty-two

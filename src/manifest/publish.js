@@ -77,6 +77,16 @@ function scrubDeep(value) {
 }
 
 /**
+ * The example entry this repository ships, which documents the schema rather
+ * than describing a project. Recognised by its placeholder path so a developer
+ * who renames it is still covered.
+ */
+function isTemplate(project) {
+  const path = project.source?.path ?? "";
+  return /^\/path\/to\/your\//.test(path) || project.id === "example-project";
+}
+
+/**
  * Decide whether one project may be published.
  *
  * @param {object} project      a bundle project (index or full)
@@ -84,6 +94,11 @@ function scrubDeep(value) {
  * @param {boolean} [opts.includePrivate=false]  publish non-public entries too
  */
 export function isPublishable(project, opts = {}) {
+  // Before `includePrivate`, deliberately: that flag is for publishing real
+  // work the author keeps private, never for shipping our own placeholder.
+  // Published, the example would render as an article about a project that
+  // does not exist.
+  if (isTemplate(project)) return false;
   if (opts.includePrivate) return true;
   return PUBLISHABLE.has(project.visibility);
 }
@@ -153,7 +168,16 @@ export function redactBundle(bundle, opts = {}) {
 
   for (const project of bundle.projects) {
     if (isPublishable(project, opts)) kept.push(redactProject(project));
-    else withheld.push({ id: project.id, name: project.name, visibility: project.visibility });
+    else
+      withheld.push({
+        id: project.id,
+        name: project.name,
+        visibility: project.visibility,
+        // Two different reasons, and reporting both as "not marked public"
+        // made our own placeholder look like a project the author forgot to
+        // mark. One is the author's decision; the other is never publishable.
+        reason: isTemplate(project) ? "template" : "not public",
+      });
   }
 
   const keptIds = new Set(kept.map((p) => p.id));

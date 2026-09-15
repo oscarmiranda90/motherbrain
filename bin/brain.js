@@ -1254,14 +1254,26 @@ async function cmdPublish(args) {
   log("");
 
   log(paint("Withheld from the published copy:", color.bold));
-  if (withheld.length) {
+  const nonPublic = withheld.filter((w) => w.reason !== "template");
+  const templates = withheld.filter((w) => w.reason === "template");
+  if (nonPublic.length) {
     log(
-      `  ${withheld.length} ${withheld.length === 1 ? "project" : "projects"} not marked public — ${withheld.map((w) => w.name).join(", ")}`,
+      `  ${nonPublic.length} ${nonPublic.length === 1 ? "project" : "projects"} not marked public — ${nonPublic.map((w) => w.name).join(", ")}`,
     );
-  } else if (includePrivate) {
-    log(paint("  nothing — --include-private was passed", color.yellow));
-  } else {
-    log("  no non-public projects to withhold");
+  }
+  if (templates.length) {
+    // Said separately so it never reads as an entry the author forgot about.
+    log(`  the shipped example entry, which describes no real project`);
+  }
+  // Only when nothing was actually held back for visibility. The template
+  // line above is not a project the author chose to withhold, so it must not
+  // suppress this, and listing projects must not be followed by "none".
+  if (nonPublic.length === 0) {
+    if (includePrivate) {
+      log(paint("  nothing — --include-private was passed", color.yellow));
+    } else {
+      log("  no non-public projects to withhold");
+    }
   }
   log("  every filesystem path, on every entry and inside the prose");
   log("  no source code or credentials are ever included");

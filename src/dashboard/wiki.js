@@ -397,7 +397,13 @@ export function renderWiki(payload) {
 
     add("Type", p.kind && p.kind !== "unknown" ? "<b>" + esc(p.kind) + "</b>" : null);
     add("Status", p.status ? "<b>" + esc(p.status) + "</b>" : null);
-    add("Built with", (p.frameworks || []).length ? esc(p.frameworks.join(", ")) : esc((p.ecosystem || []).join(", ")));
+    // Two rows, not one with a fallback. Showing frameworks and only falling
+    // back to the ecosystem when it was empty meant a Flutter project that
+    // also used Firebase read "Built with: Firebase, Riverpod" — the
+    // toolchain, the first thing a reader wants, missing entirely.
+    // (No backticks in here: this comment lives inside a template literal.)
+    add("Toolchain", (p.ecosystem || []).length ? esc(p.ecosystem.join(", ")) : null);
+    add("Built with", (p.frameworks || []).length ? esc(p.frameworks.join(", ")) : null);
     add("Architecture", p.architecture ? esc(p.architecture) : null);
     add("Domain", p.domain ? esc(p.domain) : null);
     add("Does", (p.capabilities || []).length ? esc(p.capabilities.join(", ")) : null);
@@ -540,8 +546,20 @@ export function renderWiki(payload) {
     parts.push("</ol>");
 
     // Facets double as navigation: click a framework, see those projects.
+    //
+    // The ecosystem is listed separately from the frameworks because they
+    // answer different questions: the toolchain a project is written for
+    // (flutter, node, python) versus the libraries chosen inside it
+    // (Firebase, Riverpod, React). Reading only the frameworks index hid the
+    // single most important fact about every Flutter project on the page —
+    // ten of nineteen, and the rail never said Flutter once.
     const groups = data.index || {};
-    for (const [label, key] of [["By capability", "capabilities"], ["By pattern", "patterns"], ["Built with", "frameworks"]]) {
+    for (const [label, key] of [
+      ["By capability", "capabilities"],
+      ["By pattern", "patterns"],
+      ["Toolchain", "ecosystem"],
+      ["Built with", "frameworks"],
+    ]) {
       const group = groups[key];
       if (!group || Object.keys(group).length === 0) continue;
       const rows = Object.entries(group)

@@ -1165,6 +1165,71 @@ test("refreshing never undoes an image the author confirmed", async () => {
   assert.match(newBlock.slice(0, 120), /confirmed: false/, "new candidates start unconfirmed");
 });
 
+test("the wiki names the toolchain, not only the libraries", async () => {
+  // Ten of nineteen published projects were Flutter and the page never said
+  // so: the rail's facets read `index.frameworks` only, and the facts box
+  // showed `ecosystem` solely as a fallback for an empty `frameworks`. A
+  // Flutter project that also used Firebase therefore hid the one fact a
+  // reader wants first.
+  const { buildWikiPayload, renderWiki } = await import("../src/dashboard/wiki.js");
+
+  const projects = [
+    {
+      id: "flutter-and-firebase",
+      name: "Flutter and Firebase",
+      visibility: "public",
+      kind: "mobile-app",
+      ecosystem: ["flutter"],
+      frameworks: ["Firebase", "Riverpod"],
+      capabilities: ["authentication"],
+      patterns: [],
+      card: "A Flutter application backed by Firebase.",
+      documents: [],
+      images: [],
+    },
+    {
+      id: "flutter-only",
+      name: "Flutter only",
+      visibility: "public",
+      kind: "package",
+      ecosystem: ["flutter"],
+      frameworks: [],
+      capabilities: ["asset-generation"],
+      patterns: [],
+      card: "A Flutter package with no other libraries recorded.",
+      documents: [],
+      images: [],
+    },
+  ];
+
+  const bundle = {
+    title: "T",
+    author: "A",
+    projects,
+    index: {
+      capabilities: {},
+      patterns: {},
+      // Both projects share the toolchain; the facet needs more than one id.
+      ecosystem: { flutter: ["flutter-and-firebase", "flutter-only"] },
+      frameworks: { Firebase: ["flutter-and-firebase"] },
+    },
+  };
+
+  const html = renderWiki(buildWikiPayload(bundle));
+
+  assert.match(html, /Toolchain/, "the facts box and rail label the toolchain");
+  assert.match(
+    html,
+    /"ecosystem"/,
+    "the rail's facet list reads the ecosystem index, not only frameworks",
+  );
+  // The regression itself: a project with frameworks must still carry flutter.
+  const payload = buildWikiPayload(bundle);
+  const first = payload.projects.find((p) => p.id === "flutter-and-firebase");
+  assert.deepEqual(first.ecosystem, ["flutter"], "ecosystem survives into the page payload");
+  assert.deepEqual(first.frameworks, ["Firebase", "Riverpod"]);
+});
+
 test("the shipped example entry is never published", async () => {
   // It reached a real wiki build: an article about `/path/to/your/project`,
   // sitting among twenty real projects. The example documents the schema; it

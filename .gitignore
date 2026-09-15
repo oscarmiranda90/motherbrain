@@ -1,0 +1,33 @@
+node_modules/
+.DS_Store
+*.log
+
+# Local agent tooling caches
+.atl/
+
+# Local machine state — never shared. The config holds absolute paths to the
+# directories on *this* machine that hold projects, so it is never portable.
+.motherbrain/cache/
+brain.local.json
+brain.config.json
+
+# Your brain is your own. Entries carry absolute paths to your disk and
+# describe projects you may never have marked public, so this repository ships
+# the tool and not anyone's catalogue. Keep yours in a private repository, or
+# in no repository at all — the manifest works the same either way.
+projects/*.md
+!projects/EXAMPLE.md
+
+# Build output of the dashboard
+dist/
+
+# Generated views — rebuilt from projects/ by `brain build` and `brain pick`
+index.html
+pick.html
+brain.json
+api/
+public/
+
+# Ingest briefings: regenerated from the repos on demand, and they quote
+# source that may be private.
+.motherbrain/

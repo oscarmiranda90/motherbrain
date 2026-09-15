@@ -1,0 +1,44 @@
+{
+  "name": "motherbrain",
+  "version": "0.1.0",
+  "description": "A local, agent-ready manifest of everything you have ever built. Scans your disk, catalogs each project's stack, architecture and purpose, and serves it to agents, CVs and content pipelines.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "brain": "bin/brain.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skill",
+    "assets/motherbrain.png",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "manifest",
+    "portfolio",
+    "agents",
+    "ai",
+    "knowledge-base",
+    "cli",
+    "mcp"
+  ],
+  "scripts": {
+    "brain": "node bin/brain.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {},
+  "author": "Oscar Crescente",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oscarmiranda90/motherbrain.git"
+  },
+  "homepage": "https://github.com/oscarmiranda90/motherbrain#readme",
+  "bugs": {
+    "url": "https://github.com/oscarmiranda90/motherbrain/issues"
+  }
+}

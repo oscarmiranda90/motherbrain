@@ -27,6 +27,15 @@ import { CARD_SECTION } from "./schema.js";
 import { confirmedImages } from "../scan/images.js";
 
 /**
+ * How many changelog entries ride along in the card tier.
+ *
+ * Enough to answer "what have you shipped lately" from the catalogue alone;
+ * few enough that a developer with sixty projects and years of history does
+ * not pay for all of it on every read. The full list is in the dossier.
+ */
+const CHANGELOG_IN_CARD = 3;
+
+/**
  * Strip TODO scaffolding so consumers receive prose, not prompts.
  *
  * The pattern must not require a colon: the card's placeholder is written
@@ -202,6 +211,7 @@ function fullProject(entry) {
     tags: entry.tags ?? [],
     highlights: entry.highlights ?? [],
     metrics: entry.metrics ?? {},
+    changelog: entry.changelog ?? [],
     source: entry.source ?? {},
     card,
     dossier: {
@@ -237,6 +247,9 @@ function indexProject(full) {
     tags: full.tags,
     highlights: full.highlights,
     metrics: full.metrics,
+    // The newest entries only: enough to answer "what shipped recently"
+    // from the catalogue, without fetching every dossier to find out.
+    changelog: (full.changelog ?? []).slice(0, CHANGELOG_IN_CARD),
     card: full.card,
     // Inventory only: what the author wrote and roughly how much of it. The
     // text itself is in the dossier, so a reader can decide what to open and

@@ -176,6 +176,21 @@ function mergeSections(body) {
 }
 
 /**
+ * Change named frontmatter fields on one entry, leaving its prose untouched.
+ *
+ * The body is written back byte for byte: a command that records a shipped
+ * feature must never be able to damage a dossier someone wrote by hand. Only
+ * the keys passed in are touched, so an unrelated field cannot be cleared by
+ * omission.
+ */
+export async function updateEntry(root, entry, fields) {
+  const { _body, _file, ...frontmatter } = entry;
+  const merged = { ...frontmatter, ...fields };
+  await writeFile(_file, buildDocument(merged, _body ?? "", FRONTMATTER_FIELDS), "utf8");
+  return { id: merged.id, file: _file };
+}
+
+/**
  * Apply `migrateEntry` to every entry on disk.
  */
 export async function migrateAll(root) {

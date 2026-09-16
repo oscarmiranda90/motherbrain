@@ -1230,6 +1230,62 @@ test("the wiki names the toolchain, not only the libraries", async () => {
   assert.deepEqual(first.frameworks, ["Firebase", "Riverpod"]);
 });
 
+test("updateEntry changes one field and leaves the prose byte for byte", async () => {
+  // `brain shipped` writes a changelog entry onto a project whose dossier may
+  // be a thousand words somebody wrote by hand. A recording command that can
+  // damage that prose is worse than no recording command.
+  const { mkdtemp, mkdir, writeFile: wf, readFile: rf } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join: j } = await import("node:path");
+  const { readEntries, updateEntry } = await import("../src/manifest/store.js");
+
+  const root = await mkdtemp(j(tmpdir(), "mb-update-"));
+  await mkdir(j(root, "projects"), { recursive: true });
+
+  const body = [
+    "# thing",
+    "",
+    "## Card",
+    "",
+    "A card with *emphasis*, `code`, and a — dash.",
+    "",
+    "## What it is",
+    "",
+    "Prose that must survive: quotes \"like this\", a colon: here, and a list:",
+    "",
+    "- one",
+    "- two",
+    "",
+  ].join("\n");
+
+  await wf(
+    j(root, "projects", "thing.md"),
+    ["---", "id: thing", "name: Thing", "metrics: {}", "---", "", body].join("\n"),
+  );
+
+  const before = await rf(j(root, "projects", "thing.md"), "utf8");
+  const entry = (await readEntries(root)).find((e) => e.id === "thing");
+
+  await updateEntry(root, entry, {
+    changelog: [{ date: "2026-09-16", what: "Shipped a thing: it works." }],
+  });
+
+  const after = await rf(j(root, "projects", "thing.md"), "utf8");
+
+  // The body is unchanged, character for character.
+  const bodyOf = (text) => text.slice(text.indexOf("# thing"));
+  assert.equal(bodyOf(after), bodyOf(before), "prose is untouched");
+
+  // And the field landed, readable through the normal reader.
+  const reread = (await readEntries(root)).find((e) => e.id === "thing");
+  assert.equal(reread.changelog.length, 1);
+  assert.equal(reread.changelog[0].what, "Shipped a thing: it works.");
+  assert.equal(reread.changelog[0].date, "2026-09-16");
+
+  // A field not passed in is not cleared by omission.
+  assert.deepEqual(reread.metrics, {});
+});
+
 test("the shipped example entry is never published", async () => {
   // It reached a real wiki build: an article about `/path/to/your/project`,
   // sitting among twenty real projects. The example documents the schema; it

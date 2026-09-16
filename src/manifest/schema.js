@@ -58,6 +58,7 @@ export const FRONTMATTER_FIELDS = [
   "tags",
   "highlights",
   "metrics",
+  "changelog",
   "added_to_brain",
   "narrative_status",
 ];
@@ -297,6 +298,12 @@ export function entryFromScan(project, opts = {}) {
     tags: [],
     highlights: [],
     metrics: {},
+    // Written when work closes, by whoever closed it — never inferred from a
+    // commit log. "fix in the fuckin victory door" is a real commit subject
+    // from a real repository here; a raw log is not something anyone can
+    // publish. The entry that describes what shipped is written by the agent
+    // or person who had the context, which is why this starts empty.
+    changelog: [],
     added_to_brain: today,
     narrative_status: "missing",
   };

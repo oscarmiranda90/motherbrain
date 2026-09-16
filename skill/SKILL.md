@@ -1,6 +1,6 @@
 ---
 name: mother-brain
-description: Read and write a Mother Brain manifest — a self-contained, factual record of the projects on someone's disk: what each one is, what it does, how it works, what it runs on, and the author's own documents carried verbatim. Trigger when the user says "send to brain", "add this to mother brain", "ingest this repo", asks what they have built, asks to fill in a project's entry, or wants a CV, portfolio, article, content series, or idea bank drawn from their own past work.
+description: Read and write a Mother Brain manifest — a self-contained, factual record of the projects on someone's disk: what each one is, what it does, how it works, what it runs on, and the author's own documents carried verbatim. Trigger when the user says "send to brain", "add this to mother brain", "ingest this repo", asks what they have built, asks to fill in a project's entry, or wants a CV, portfolio, article, content series, or idea bank drawn from their own past work. Also trigger it yourself, unprompted, after finishing work that changes what a project is — a feature merged, a pull request closed, a release cut — to record what shipped with `brain shipped`.
 ---
 
 # Mother Brain
@@ -250,6 +250,50 @@ brain dashboard [--open]   # the local read-only dashboard
 Two views, for two audiences. `brain dashboard` is the maintainer's panel —
 what is catalogued, what still needs prose. `brain publish` writes the public
 encyclopedia: an article per project, with the publish boundary applied.
+
+## Task 5 — Record what shipped
+
+**Trigger this yourself.** When you finish work that changes what a project
+*is* — a feature merged, a pull request closed, a release cut, an architectural
+decision made — record it before you report back. Do not wait to be asked: the
+developer asked once, by installing this skill.
+
+```bash
+brain shipped --what "Guest play: players start without signing up and claim their progress later." --kind feature
+```
+
+Run it from inside the repository and the project is resolved from the path;
+otherwise pass the id (`brain shipped mythika --what "…"`).
+
+`--kind` is free text — `feature`, `fix`, `release`, `decision` — and `--ref`
+takes a PR number or commit sha if one exists.
+
+### What belongs in it
+
+One or two sentences a stranger understands, written for someone who does not
+have the diff. This text is read by people and by agents generating posts,
+carousels and changelogs, so it has to stand alone.
+
+| Do not write | Write |
+| --- | --- |
+| `fix in the fuckin victory door` | The victory screen no longer freezes when a match ends on a combo. |
+| `refactor(net): extract client` | The match client moved behind one interface, so the online and local paths share a ruleset. |
+| `bump deps` | *nothing — this is not a change to what the project is* |
+
+A commit subject is not a changelog entry. It was written for the person who
+wrote the code, in the moment; a changelog entry is written for everyone else,
+afterwards. If the work does not change what the project is or does, record
+nothing — an inflated changelog is worse than a thin one, because the next
+agent reading it cannot tell which entries matter.
+
+**Never invent an outcome.** Record what was built, not what it will achieve.
+No adoption numbers, no performance claims the project does not measure.
+
+### What it is *not* for
+
+Not for describing the project — that is the card and the dossier. Not for
+metrics. Not a commit log: if `brain shipped` were called on every commit the
+changelog would stop being readable, which defeats the point.
 
 ## Keeping the brain current
 

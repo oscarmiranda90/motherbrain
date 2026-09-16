@@ -29,6 +29,7 @@ import {
   pathExists,
   readEntries,
   refreshEntries,
+  updateEntry,
   migrateAll,
 } from "../src/manifest/store.js";
 import { collectBrief, renderBrief } from "../src/ingest/brief.js";
@@ -857,6 +858,81 @@ async function cmdSites(args) {
 }
 
 /**
+ * Record what just shipped.
+ *
+ * The catalogue describes what a project *is*, which changes over weeks. This
+ * records what changed in it, which happens daily — and is what a question
+ * like "what did I build last" actually needs. The two are kept apart on
+ * purpose: a card rewritten on every commit would stop being a description.
+ *
+ * Written by whoever closed the work, because they had the context. A commit
+ * subject does not survive contact with an audience — "fix in the fuckin
+ * victory door" is a real one from a real repository in this brain — so this
+ * takes a sentence a person could read, not a log line.
+ */
+async function cmdShipped(args) {
+  const root = BRAIN_ROOT;
+  const entries = await readEntries(root);
+
+  if (entries.length === 0) {
+    log(paint("Brain is empty. Run `brain scan` first.", color.yellow));
+    return 1;
+  }
+
+  // Resolve which project: an explicit id, or the repository we are standing in.
+  const first = args._[0];
+  const byId = first ? entries.find((e) => e.id === first) : null;
+  const cwd = process.cwd();
+  const byPath = entries.find((e) => e.source?.path && cwd.startsWith(e.source.path));
+  const entry = byId ?? byPath;
+
+  if (!entry) {
+    log(paint(first ? `No entry with id ${first}` : "Not inside a catalogued project.", color.yellow));
+    log("");
+    log(`Pass an id:  ${paint('brain shipped <id> --what "..."', color.cyan)}`);
+    return 1;
+  }
+
+  const what = args.flags.what ? String(args.flags.what).trim() : "";
+  if (!what) {
+    log(paint("Nothing to record — pass --what with a sentence.", color.yellow));
+    log("");
+    log(`  ${paint('brain shipped --what "Guest play: players start without signing up."', color.cyan)}`);
+    log("");
+    log(paint("One or two sentences a stranger understands. Not a commit subject.", color.dim));
+    return 1;
+  }
+
+  const date = args.flags.date ? String(args.flags.date) : new Date().toISOString().slice(0, 10);
+  const record = { date, what };
+  if (args.flags.kind) record.kind = String(args.flags.kind);
+  if (args.flags.ref) record.ref = String(args.flags.ref);
+
+  // Newest first: every consumer wants the latest, and the card tier keeps
+  // only the head of this list.
+  const changelog = [record, ...(Array.isArray(entry.changelog) ? entry.changelog : [])];
+
+  if (args.flags["dry-run"]) {
+    log(paint(`Would record on ${entry.id}:`, color.dim));
+    log("");
+    log(`  ${paint(date, color.cyan)}  ${what}`);
+    if (record.kind) log(`  kind: ${record.kind}`);
+    if (record.ref) log(`  ref:  ${record.ref}`);
+    return 0;
+  }
+
+  await updateEntry(root, entry, { changelog });
+  await buildBundle(root);
+
+  log(`${paint("✓", color.green)} ${entry.name ?? entry.id} — recorded`);
+  log("");
+  log(`  ${paint(date, color.cyan)}  ${what}`);
+  log("");
+  log(paint(`${changelog.length} ${changelog.length === 1 ? "entry" : "entries"} in its changelog.`, color.dim));
+  return 0;
+}
+
+/**
  * Write the update instruction into the agent files a developer already keeps.
  *
  * A brain only stays useful if it is updated when work actually happens, and
@@ -1454,6 +1530,8 @@ const COMMANDS = {
   q: cmdQuery,
   doctor: cmdDoctor,
   sites: cmdSites,
+  shipped: cmdShipped,
+  ship: cmdShipped,
   hook: cmdHook,
   refresh: cmdRefresh,
   migrate: cmdMigrate,
